@@ -1,0 +1,53 @@
+.wide {width: 1fr; height: auto;}
+.auto {width: auto; height: auto;}
+.centered {align: center middle; content-align: center middle;}
+.onefr {width: 1fr; height: 1fr;}
+.h1 {height: 1;}
+
+.header {
+    height: 5;
+    margin: 2 0 0 0;
+    content-align: center bottom;
+    align: center bottom;
+    # background: blue;
+    &.tall {height: 7;}
+    &.turnlabel {
+        border: solid $primary-background;
+        align: center middle;
+    }
+}
+.footer {height: 5;}
+
+.grid {
+    layout: grid;
+    grid-gutter: 0;
+    padding: 0;
+    margin: 0;
+    # background: brown;
+}
+.gridcell {
+    margin: 0;
+    &.red {background: red;}
+    &.green {background: green;}
+    &.blue {background: blue;}
+    &.yellow {background: yellow;}
+}
+# Cell:hover {border: tall $accent;}
+
+.bordered {
+    background: $surface-lighten-1;
+    border: tall $primary-background;
+    padding: 0 2 0 2;
+    &.focusing {
+        border: tall $accent;
+        # border: tall $primary-lighten-1;
+    }
+}
+SimpleButton {
+    border: tall $surface-lighten-1;
+    &:hover {background: $background-lighten-1;}    
+    &:focus {border: tall $accent-darken-1;}
+}
+GameEntry {
+    max-width: 80%;
+}
