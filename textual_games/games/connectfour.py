@@ -8,7 +8,7 @@ from textual.containers import Container, Horizontal
 from textual.widgets import Button
 
 from textual_games.game import GameBase
-from textual_games.grid import Grid, GridFocusType, GridGravity
+from textual_games.grid import Grid, GridFocusMode
 from textual_games.enums import PlayerState
 
 
@@ -23,12 +23,13 @@ class ConnectFour(GameBase):
 
     def compose(self):
 
-        focus_mode = GridFocusType.COLUMNS      # This BS is necessary because intellisense wouldn't work
-        gravity = GridGravity.DOWN              # properly if I tried inserting it down there directly.
+        self.rows = 6
+        self.columns = 7
+        focus_mode = GridFocusMode.POSSIBLE_MOVES   # intellisense wont work if inserting it down there directly.
 
         self.grid = Grid(
-            rows=6,
-            columns=7,
+            rows=self.rows,
+            columns=self.columns,
             grid_width=50,
             grid_height=19,
             grid_gutter=0, 
@@ -36,28 +37,54 @@ class ConnectFour(GameBase):
             player2_color="yellow",
             cell_size=3,
             focus_mode=focus_mode,
-            gravity=gravity,
             classes="grid onefr"
         )        
 
         with Container(id="content", classes="onefr centered"):
             yield self.grid
-        with Horizontal(classes="centered wide footer"):
-            yield Button("Restart", id="restart", classes="centered")
 
-    async def on_mount(self):
-        self.restart()
-
-    @on(Button.Pressed, "#restart")
-    def restart(self):
-        self.grid.restart_grid()
+    def on_mount(self):
         self.post_message(self.StartGame(
             game = self,
-            rows = 6,
-            columns = 7,
+            rows = self.rows,
+            columns = self.columns,
             max_depth = 7,
-            gravity=GridGravity.DOWN
         ))
+
+    #* Called by TextualGames.start_game, TextualGames.restart
+    def restart(self):
+        self.grid.restart_grid()
+
+    #* Called by: TextualGames.update_board
+    def update_UI_state(self, event):
+        self.grid.update_grid(event)
+
+    #* Called by: game_over in TextualGames class.
+    def clear_focus(self):
+        self.grid.clear_focus()
+
+
+    # NOTE: This will run in a thread when called by minimax
+    #* Called by GameManager.minimax, Grid.focus_cell
+    def get_possible_moves(self, board) -> list[tuple[int, int]]:
+        """Returns a list of tuples representing coordinates of empty cells."""
+
+        possible_moves = []
+
+        # This system here basically represents gravity.
+        for col in range(self.columns):
+            for row in range(self.rows):
+                if row != self.rows-1:                      # if not last row:
+                    if board[row+1][col] == 0:         # is row below empty?
+                        continue
+                    else:
+                        if board[row][col] == 0:
+                            possible_moves.append((row, col))
+                        break
+                else:                                    
+                    possible_moves.append((row, col))       # it should only get here if column is empty
+
+        return possible_moves
 
     #* Called by: calculate_winner in TextualGames class.
     def calculate_winner(self, board: list[list[int]]) -> PlayerState | None:

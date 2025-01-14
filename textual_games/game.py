@@ -6,12 +6,28 @@ from __future__ import annotations
 from textual.message import Message
 from textual.widget import Widget
 
-from textual_games.enums import GridGravity
-
 # from textual_games.enums import PlayerState
 
 
 class GameBase(Widget):
+
+    def validate_interface(game: GameBase):
+        """Validates if a game class implements the required contract."""
+
+        required_members = {
+            "calculate_winner": "method",
+            "game_name": "attribute",
+            "restart": "method",
+            "get_possible_moves": "method",
+            "update_UI_state": "method",
+            "clear_focus": "method",
+        }
+            
+        for member, kind in required_members.items():
+            try:
+                getattr(game, member)
+            except AttributeError:
+                raise NotImplementedError(f"{game.__name__} must implement {member} ({kind}).")
 
     class StartGame(Message):
         """Posted when a game is either mounted or restarted. \n
@@ -23,34 +39,10 @@ class GameBase(Widget):
                 rows: int,
                 columns: int,
                 max_depth: int,
-                gravity: GridGravity = GridGravity.NONE
             ):
             super().__init__()
             self.game = game
             self.rows = rows
             self.columns = columns
             self.max_depth = max_depth
-            self.gravity = gravity
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        try:
-            self.calculate_winner
-        except AttributeError:
-            raise NotImplementedError("Game must implement calculate_winner method.")
-        
-        try:
-            self.game_name
-        except AttributeError:
-            raise NotImplementedError("Game must implement game_name attribute.")
-        
-        try:
-            self.restart
-        except AttributeError:
-            raise NotImplementedError("Game must implement restart method.")
-
-    # #* Called by: calculate_winner in Main App.
-    # def calculate_winner(self, board: list[list[int]]) -> PlayerState | None:
-    #     """Returns a PlayerState if game is over, else returns None."""
-    #     pass

@@ -10,49 +10,63 @@ from textual.message import Message
 from textual.widget import Widget
 
 # TextualGames imports
-from textual_games.enums import PlayerState, GridGravity
+from textual_games.enums import PlayerState
 from textual_games.game import GameBase
 
 class GameManager(Widget):
 
     class ChangeTurn(Message):
-        """Posted by `start_game`, `cell_pressed`, and `computer_turn_orch` in GameManager. \n
-        Handled by `change_turn` in TextualGames."""
+        """Posted by:
+        - self.start_game
+        - self.cell_pressed
+        - self.computer_turn_orch
+
+        Handled by: TextualGames.change_turn"""
         def __init__(self, value: PlayerState):
             super().__init__()
             self.value = value
 
     class ComputerMove(Message):
-        """Posted by `computer_turn_orch` when the AI has chosen a move. \n
-        Handled by: `play_computer_move` in TextualGames class."""
+        """Posted by: self.computer_turn_orch (when the AI has chosen a move)
+
+        Handled by: TextualGames.play_computer_move"""
         def __init__(self, row: int, col: int):
             super().__init__()
             self.row = row
             self.col = col
 
     class GameOver(Message):
-        """Posted by: `cell_pressed` and `computer_turn_orch` in GameManager. \n
-        Handled by `game_over` in TextualGames."""
+        """Posted by:
+        - self.cell_pressed
+        - self.computer_turn_orch
+
+        Handled by: TextualGames.game_over"""
         def __init__(self, result: PlayerState):
             super().__init__()
             self.result = result
 
+    class UpdateGameState(Message):
+        """Posted by: self.cell_pressed"""
+
+        def __init__(self, row: int, column: int):
+            super().__init__()
+            self.row = row
+            self.column = column
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.display = False
         self.game_running = False
     
-    #* Called by: `mount_grid` and `restart` in TicTacToe.
+    #* Called by: TextualGames.start_game
     def start_game(self, event: GameBase.StartGame):
 
         self.game_running = True
         self.game = event.game       #! This is not currently used, but could be useful for future features.
+        self.game_type = 'board'     #! this obviously needs updating.
         self.rows = event.rows          # right now things are mostly decoupled.
         self.columns = event.columns
         self.max_depth = event.max_depth
-        self.gravity = event.gravity
-        self.empty_cells = self.rows*self.columns
         self.int_board = [[0 for _ in range(self.columns)] for _ in range(self.rows)]
         self.move_counter = 0
 
@@ -61,7 +75,22 @@ class GameManager(Widget):
             f"Rows: {self.rows}\n"
             f"Columns: {self.columns}\n"
             f"Max depth: {self.max_depth}\n"
-            f"Gravity: {self.gravity}\n"
+        )
+
+        self.post_message(self.ChangeTurn(PlayerState.PLAYER1))
+        self.notify("Game started", timeout=1.5)
+
+    def restart_game(self):
+
+        self.game_running = True
+        self.int_board = [[0 for _ in range(self.columns)] for _ in range(self.rows)]
+        self.move_counter = 0
+
+        self.log(
+            "Restarting game with settings:\n"
+            f"Rows: {self.rows}\n"
+            f"Columns: {self.columns}\n"
+            f"Max depth: {self.max_depth}\n"
         )
 
         self.post_message(self.ChangeTurn(PlayerState.PLAYER1))
@@ -71,21 +100,31 @@ class GameManager(Widget):
         self.game_running = False
         self.post_message(self.GameOver(game_result))
 
-    #* Called by: cell_pressed in Grid class
-    async def cell_pressed(self, row: int, column: int):
-        self.log.info(f"manager Cell pressed: {row}, {column}")
+    def get_current_board(self) -> list[tuple[int, int]]:
+        return self.int_board
 
-        self.log.info(f"self.game_running: {self.game_running}")
+    #* Called by: TextualGames.cell_chosen
+    async def cell_pressed(self, event):
+
+        if not self.game_running:
+            self.log.debug("Game is not running.")
+            return
+
+        row = event.row
+        column = event.column
+
+        self.log.info(
+            f"manager Cell pressed: {row}, {column}"
+            f"self.game_running: {self.game_running}"
+        )
 
         if self.int_board[row][column] != 0:
             self.notify("Cell already taken", timeout=1)
             return
-        if not self.game_running:
-            return
 
         self.int_board[row][column] = 1
+        self.post_message(self.UpdateGameState(row, column))
         self.move_counter += 1
-        self.empty_cells -= 1
         game_result = self.app.calculate_winner(self.int_board)
         if game_result is not None:
             self.end_game(game_result)
@@ -95,7 +134,7 @@ class GameManager(Widget):
         # NOTE: I let the main app call the computer_turn_orch method to ensure the
         # UI is updated before it starts thinking.
 
-    #* Called by: change_turn in main App.
+    #* Called by: TextualGames.change_turn
     async def computer_turn_orch(self):
 
         self.minimax_counter = 0
@@ -116,7 +155,6 @@ class GameManager(Widget):
 
         self.int_board[ai_row][ai_col] = 2              # Apply AI move to integer board
         self.move_counter += 1
-        self.empty_cells -= 1
         self.post_message(self.ComputerMove(ai_row, ai_col))  # Updates the cell state in the Grid
 
         game_result = self.app.calculate_winner(self.int_board)
@@ -125,32 +163,6 @@ class GameManager(Widget):
             return
         
         self.post_message(self.ChangeTurn(PlayerState.PLAYER1))     # Change turn back to human
-
-
-    def get_possible_moves(self, board: list[list[int]]) -> list[tuple[int, int]]:
-
-        possible_moves = []
-        
-        if self.gravity == GridGravity.DOWN:
-            for col in range(self.columns):
-                for row in range(self.rows):
-                    if row != self.rows-1:                      # if not last row:
-                        if board[row+1][col] == 0:         # is row below empty?
-                            continue
-                        else:
-                            if board[row][col] == 0:
-                                possible_moves.append((row, col))
-                            break
-                    else:                                    
-                        possible_moves.append((row, col))       # it should only get here if column is empty
-        else:
-            for row in range(self.rows):
-                for col in range(self.columns):
-                    if board[row][col] == 0:
-                        possible_moves.append((row, col))
-
-
-        return possible_moves
 
 
     @work(thread=True, exit_on_error=False)
@@ -166,6 +178,7 @@ class GameManager(Widget):
         )   
         return best_move
 
+    #* Called by: self.computer_turn_worker, self.minimax
     def minimax(
         self,
         board: list[list[int]],
@@ -203,7 +216,7 @@ class GameManager(Widget):
         best_score = float('-inf') if is_maximizing else float('inf')
         player     =             2 if is_maximizing else 1
 
-        possible_moves = self.get_possible_moves(board)
+        possible_moves = self.app.current_game.get_possible_moves(board)
 
         for move in possible_moves:
             row, col = move

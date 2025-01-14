@@ -1,4 +1,4 @@
-# from __future__ import annotations
+from __future__ import annotations
 import importlib.util
 import os
 from typing import Dict, Any, Type, List
@@ -13,7 +13,7 @@ from textual.app import App, SystemCommand
 from textual.screen import Screen
 from textual.message import Message
 from textual.containers import Container, Horizontal
-from textual.widgets import Footer, Label, Static
+from textual.widgets import Footer, Label, Static, Button
 from textual.dom import DOMNode
 from textual.widget import Widget
 
@@ -83,6 +83,8 @@ class TextualGames(App):
             yield SpinnerWidget("line", id="spinner", classes="auto centered")
         with Container(id="content", classes="onefr centered"):
             yield Static()
+        with Horizontal(classes="centered wide footer"):
+            yield Button("Restart", id="restart", classes="centered")
         yield Footer()
 
     def get_system_commands(self, screen: Screen):
@@ -90,9 +92,11 @@ class TextualGames(App):
         yield SystemCommand("Main Menu", "Exit game and go back to main menu", self.mount_games_menu)
 
     def on_mount(self):
+        self.query_one("#restart").display = False
         self.call_after_refresh(self.load_games)
 
     #* Called by: on_mount, directly above.
+    # @called_by('TextualGames'.on_mount)       #! try me
     async def load_games(self):
 
         self.content_window = self.query_one("#content")
@@ -103,7 +107,7 @@ class TextualGames(App):
         games = self.loader.discover_games()
         self.log(games)
 
-        self.all_games = [
+        self.games = [
             GameEntry(key, value, classes="wide centered") for key, value in games.items()
         ]
         await self.mount_games_menu()
@@ -112,14 +116,14 @@ class TextualGames(App):
 
         self.game_manager.game_running = False
         await self.content_window.remove_children()
-        await self.content_window.mount_all(self.all_games)
+        await self.content_window.mount_all(self.games)
         self.query_one("#turn_label").update("")
 
-        self.query_one("#header").display = True
-        self.query_one("#animation_header").display = True
-        self.query_one("#spinner").visible = False
-        self.query_one("#turn_header").display = False
-        
+        self.query_one("#turn_header").display = False      # disable the turn display
+        self.query_one("#restart").visible = False          # disable restart button
+        self.query_one("#header").display = True            # re-enable title display
+        self.query_one("#animation_header").display = True  # re-enable title animation
+
         self.content_window.query_one(GameEntry).focus()
 
     def action_menu_next(self) -> None:
@@ -141,26 +145,36 @@ class TextualGames(App):
     
     ###~ Event Handlers ~###
 
-    @called_by(GameEntry.entry_pressed)
     @on(GameEntry.GameSelected)
     def game_selected(self, event: GameEntry.GameSelected):
 
         self.log.info(f"game_selected in main app received: {event.game_class}")
 
         self.content_window.remove_children()
-        self.current_game = event.game_class()
-        self.content_window.mount(self.current_game)
+        self.current_game = event.game_class()          # here the game instance is created.
+        self.content_window.mount(self.current_game)    # Game instances are only created when selected.
 
     #* Called by on_mount or restart in a game widget.
     @on(GameBase.StartGame)
     def start_game(self, event: GameBase.StartGame):
-        self.workers.cancel_all()
+
         self.query_one("#header").display = False
         self.query_one("#animation_header").display = False
         self.query_one("#turn_header").display = True
+        self.query_one("#restart").display = True
         self.game_manager.start_game(event)
+        self.current_game.restart()
         self.call_after_refresh(self.query_one(Footer).refresh, recompose=True)
 
+    @on(Grid.RestartGame)
+    @on(Button.Pressed, "#restart")
+    def restart(self):
+        self.game_manager.restart_game()
+        self.current_game.restart()
+
+    @called_by(GameManager.minimax)
+    def get_possible_moves(self, state: Any):
+        return self.current_game.get_possible_moves(state)
 
     @called_by(
         GameManager.cell_pressed,
@@ -175,12 +189,6 @@ class TextualGames(App):
 
         return self.current_game.calculate_winner(board)
 
-    
-    @called_by(
-        GameManager.start_game,
-        GameManager.cell_pressed, 
-        GameManager.computer_turn_orch
-    )
     @on(GameManager.ChangeTurn)         
     @work(exit_on_error=False)
     async def change_turn(self, event: GameManager.ChangeTurn):
@@ -199,7 +207,6 @@ class TextualGames(App):
             self.query_one("#turn_label").update("Computer is thinking... ")
             await self.game_manager.computer_turn_orch()
 
-    @called_by(GameManager.end_game)
     @on(GameManager.GameOver)           
     def game_over(self, event: GameManager.GameOver):
         
@@ -210,10 +217,9 @@ class TextualGames(App):
         else:
             self.query_one("#turn_label").update(f"{event.result.name} wins!")
 
-        self.current_game.grid.clear_focus()            #! This is presuming the game uses a grid.
-        self.current_game.query_one("#restart").focus() #! This is presuming there's a button with id "restart"
+        self.current_game.clear_focus()
+        self.query_one("#restart").focus()  
 
-    @called_by(GameManager.computer_turn_orch)
     @on(GameManager.ComputerMove)
     def play_computer_move(self, event: GameManager.ComputerMove):
 
@@ -225,7 +231,11 @@ class TextualGames(App):
 
     @on(Grid.CellChosen)
     async def cell_chosen(self, event: Grid.CellChosen):
-        await self.game_manager.cell_pressed(event.row, event.column)
+        await self.game_manager.cell_pressed(event)
+
+    @on(GameManager.UpdateGameState)
+    def update_board(self, event: GameManager.UpdateGameState):
+        self.current_game.update_UI_state(event)
 
 class GameLoader(DOMNode):
 
@@ -265,6 +275,8 @@ class GameLoader(DOMNode):
         Returns:
             Dict[str, Type[Any]]: Dictionary mapping game names to their game classes
         """
+        self.log.debug("Discovering games")
+
         self.loaded_games.clear()
         
         for directory in self.game_directories:
@@ -278,27 +290,36 @@ class GameLoader(DOMNode):
                     try:
                         module_path = os.path.join(directory, filename)
                         spec = importlib.util.spec_from_file_location(scriptname, module_path)
+                    except Exception as e:
+                        self.log.error(f"Error loading spec for game {scriptname}: {str(e)}")
+                        continue
+                    else:
                         if spec is None or spec.loader is None:
                             self.log.error(f"Failed to load spec for game: {scriptname}")
-                            continue
-                            
+                            continue    
+                    try:
                         module = importlib.util.module_from_spec(spec)
                         spec.loader.exec_module(module)
-                        
-                        try:
-                            game_class = module.loader()
-                        except AttributeError:
-                            self.log.warning(f"Game {scriptname} does not have an loader function")
-                            continue
-                        try:
-                            game_name = game_class.game_name
-                            self.loaded_games[game_name] = game_class
-                        except AttributeError:
-                            self.log.warning(f"Game {scriptname} does not have a game_name attribute")
-                            continue
-                            
                     except Exception as e:
                         self.log.error(f"Error loading game {scriptname}: {str(e)}")
-                    
+                        continue
+                    try:
+                        game_class = module.loader()
+                    except AttributeError:
+                        self.log.warning(f"Game {scriptname} does not have a loader function")
+                        continue
+                    try:
+                        game_class.validate_interface(game_class)   # the instance is not created yet, so pass the class.
+                    except Exception as e:
+                        self.log.error(f"Error validating game {scriptname}: {str(e)}")
+                        continue
+
+                    game_name = game_class.game_name
+                    try:
+                        self.loaded_games[game_name] = game_class
+                    except KeyError:
+                        self.log.warning(f"Game {game_name} already loaded, skipping")
+                        continue
+
         return self.loaded_games
 

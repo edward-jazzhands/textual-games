@@ -1,9 +1,9 @@
 """Tic-Tac-Toe game script for TextualGames"""
 
 # Textual imports
-from textual.app import on
-from textual.containers import Container, Horizontal
-from textual.widgets import Button
+# from textual.app import on
+from textual.containers import Container
+# from textual.widgets import Button
 
 # TextualGames imports
 from textual_games.game import GameBase
@@ -29,10 +29,12 @@ class TicTacToe(GameBase):
 
     def compose(self):
 
-        self.grid_size = 3
+        self.rows = 3
+        self.columns = 3
+        
         self.grid = Grid(
-            rows=3,
-            columns=3,
+            rows=self.rows,
+            columns=self.columns,
             grid_width=34,          # NOTE: The sizes and formatting can be tricky to get perfect, so I've
             grid_height=18,         # decided its easiest to make each game enter the grid size and cell size manually.
             grid_gutter=0,              # If writing a game, you'll need to just play with these numbers until 
@@ -44,22 +46,40 @@ class TicTacToe(GameBase):
 
         with Container(id="content", classes="onefr centered"):
             yield self.grid
-        with Horizontal(classes="centered wide footer"):
-            yield Button("Restart", id="restart", classes="centered")
+
 
     async def on_mount(self):
-        self.restart() 
-
-    @on(Grid.RestartGame)
-    @on(Button.Pressed, "#restart")
-    def restart(self):
-        self.grid.restart_grid()
         self.post_message(self.StartGame(
             game = self,
-            rows = self.grid_size,
-            columns = self.grid_size,
+            rows = self.rows,
+            columns = self.columns,
             max_depth = 9
         ))
+
+    #* Called by TextualGames.start_game, TextualGames.restart
+    def restart(self):
+        self.grid.restart_grid()
+
+    #* Called by: TextualGames.update_board
+    def update_UI_state(self, event):
+        self.grid.update_grid(event)
+
+    #* Called by: game_over in TextualGames class.
+    def clear_focus(self):
+        self.grid.clear_focus()
+
+    # NOTE: This will run in a thread when called by minimax
+    #* Called by GameManager.minimax, Grid.focus_cell
+    def get_possible_moves(self, board) -> list[tuple[int, int]]:
+
+        possible_moves = []
+        
+        for row in range(self.rows):
+            for col in range(self.columns):
+                if board[row][col] == 0:
+                    possible_moves.append((row, col))
+
+        return possible_moves
 
     #* Called by: calculate_winner in TextualGames class.
     def calculate_winner(self, board: list[list[int]]) -> PlayerState | None:
@@ -67,8 +87,8 @@ class TicTacToe(GameBase):
 
         rows      = board
         columns   = list(zip(*board))
-        main_diag = [[board[i][i] for i in range(self.grid_size)]]
-        anti_diag = [[board[i][self.grid_size - i - 1] for i in range(self.grid_size)]]
+        main_diag = [[board[i][i] for i in range(self.rows)]]
+        anti_diag = [[board[i][self.columns - i - 1] for i in range(self.rows)]]
 
         # Combine all possible lines into a single list
         lines = (rows + columns + main_diag + anti_diag)

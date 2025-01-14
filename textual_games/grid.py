@@ -9,7 +9,8 @@ from textual.message import Message
 from textual.binding import Binding
 
 from textual_games.source_decorator import called_by
-from textual_games.enums import PlayerState, GridFocusType, GridGravity
+from textual_games.enums import PlayerState, GridFocusMode
+from textual_games.manager import GameManager
 
 class Cell(Static):
 
@@ -123,8 +124,7 @@ class Grid(Widget):
             player2_token: str = '',
             player1_color: str | None = None,
             player2_color: str | None = None,
-            focus_mode: GridFocusType = GridFocusType.ALL,
-            gravity: GridGravity = GridGravity.NONE,
+            focus_mode: GridFocusMode = GridFocusMode.ALL,
             name: str | None = None,
             id: str | None = None,
             classes: str | None = None,
@@ -142,7 +142,6 @@ class Grid(Widget):
             | player1_color   | - The color of player 1's token
             | player2_color   | - The color of player 2's token
             | focus_mode      | - The direction of focus
-            | gravity         | - The direction of gravity
             | name            | - The name of the widget
             | id              | - The ID of the widget in the DOM
             | classes         | - The CSS classes for the widget """
@@ -155,8 +154,7 @@ class Grid(Widget):
         self.player2_token: str = player2_token
         self.player1_color: str = player1_color
         self.player2_color: str = player2_color
-        self.focus_mode: GridFocusType = focus_mode
-        self.gravity : GridGravity = gravity
+        self.focus_mode: GridFocusMode = focus_mode
 
         self.styles.grid_size_rows = self.rows
         self.styles.grid_size_columns = self.columns
@@ -205,7 +203,7 @@ class Grid(Widget):
     ) -> bool | None:  
         """Check if an action may run."""
         if action == "up" or action == "down":
-            if self.focus_mode == GridFocusType.COLUMNS:
+            if self.focus_mode == GridFocusMode.POSSIBLE_MOVES:
                 return False
         return True
 
@@ -214,7 +212,11 @@ class Grid(Widget):
         self.log.debug("Action: Select")
         row_index, col_index = self.string_to_coordinates(self.focus_string)
         self.post_message(self.CellChosen(row_index, col_index))
-        self.query_one(f"#cell_{row_index}_{col_index}").state = PlayerState.PLAYER1
+
+    #* Called by: update_UI_state in the current_game
+    def update_grid(self, event: GameManager.UpdateGameState):
+        self.query_one(f"#cell_{event.row}_{event.column}").state = PlayerState.PLAYER1
+
 
     def action_app_focus(self):
         self.app.action_focus_next()
@@ -231,8 +233,9 @@ class Grid(Widget):
 
     @on(Cell.HoverEnter)
     def cell_hovered(self, event: Cell.HoverEnter):
-        self.log.debug(f"Cell hovered: {event.cell.row}, {event.cell.column}")
+        self.log.debug(f"cell_hovered in Grid: {event.cell.row}, {event.cell.column}")
         if not self.can_focus:
+            self.log.debug("Cell hovered cannot focus")
             return
         self.focus_cell(event.cell.row, event.cell.column)   
 
@@ -277,7 +280,7 @@ class Grid(Widget):
         old_row, old_col = self.string_to_coordinates(old)
         new_row, new_col = self.string_to_coordinates(new)
 
-        self.log(
+        self.log.debug(
             f"Old string: {old} \n"
             f"old_row: {old_row}, old_col: {old_col} \n"
             f"New string: {new} \n"
@@ -293,25 +296,22 @@ class Grid(Widget):
     @called_by(restart_grid, cell_hovered,
         action_left, action_right, action_up, action_down)
     def focus_cell(self, row: int, col: int):
+        self.log.debug(f"Focus cell in grid: {row}, {col}")
 
-        if self.gravity == GridGravity.DOWN:
-            for newrow in range(self.rows):
-                if newrow != self.rows-1:                      # if not last row
-                    self.log("Not the last row...")
-                    if self.query_one(f"#cell_{newrow+1}_{col}").state == PlayerState.EMPTY:
-                        self.log("Cell below is empty. Continuing...")
-                        continue
-                    else:
-                        self.log(f"Cell below is not empty. Focusing cell {newrow}, {col}")
-                        row = newrow
-                        break
-                else:                   # if it is last row
-                    self.log(f"Last row. Focusing cell {newrow}, {col}")
-                    row = newrow
-                    break
+        if self.focus_mode == GridFocusMode.ALL:
+            pass    # Default. Do nothing
+        
+        elif self.focus_mode == GridFocusMode.POSSIBLE_MOVES:
+
+            #! Big change needed: Grid shouldn't let you focus on cells that are taken
+
+            board = self.app.game_manager.get_current_board()
+            possible_moves = self.app.current_game.get_possible_moves(board)
+            for move in possible_moves:     # each move is tuple of coordinates (0, 0), (2, 3), etc
+                if move[1] == col:          # find move that matches current column
+                    row = move[0]           # set row to that move
 
         self.focus_string = self.coordinates_to_string(row, col)
-
 
     @called_by(action_select, watch_focus_string,
         action_left, action_right, action_up, action_down)

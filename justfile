@@ -8,6 +8,9 @@ tmux:
 console:
 	uv run textual console -x EVENT -x SYSTEM -x WORKER
 
+console-no-debug:
+	uv run textual console -x EVENT -x SYSTEM -x WORKER -x DEBUG
+
 run-dev:
 	uv run textual run --dev textual_games:TextualGames
 

@@ -7,14 +7,6 @@ class PlayerState(Enum):
     PLAYER1 = 1
     PLAYER2 = 2
 
-class GridFocusType(Enum):
-    ALL = "all"
-    ROWS = "rows"
-    COLUMNS = "columns"
-
-class GridGravity(Enum):
-    UP = "up"
-    DOWN = "down"
-    LEFT = "left"
-    RIGHT = "right"
-    NONE = "none"
+class GridFocusMode(Enum):
+    ALL = 0
+    POSSIBLE_MOVES = 1
